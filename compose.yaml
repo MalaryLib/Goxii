@@ -6,21 +6,16 @@ services:
       - 8081:8081
     command: sh ./bin/docker/build.sh
     environment:
-      - DESTINATION=172.0.0.2
-      - PORT=8082
+      - DESTINATION=
+      - PORT=
     volumes:
       - ./resources/:/usr/src/app/resources
     networks:
-      - goxii-test
+      - test-net
       - proxy-net
   
 networks:
   proxy-net:
     external: true
-  goxii-test:
-    driver: bridge
-    name: goxii-test
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.0.0.0/24
+  test-net:
+    external: true
