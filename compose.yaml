@@ -1,0 +1,37 @@
+services:
+  goxii:
+    build: .
+    container_name: goxii-proxy
+    ports:
+      - 8081:8081
+    command: sh ./bin/docker/build.sh
+    environment:
+      - DESTINATION=172.0.0.2
+      - PORT=8082
+    volumes:
+      - ./resources/:/usr/src/app/resources
+    networks:
+      - goxii-test
+      - proxy-net
+  
+  test:
+    build:
+      context: test
+      dockerfile: ./Dockerfile
+    container_name: protected
+    networks:
+      goxii-test:
+        ipv4_address: 172.0.0.2
+    command: python3 -m http.server 8082
+
+
+networks:
+  proxy-net:
+    external: true
+  goxii-test:
+    driver: bridge
+    name: goxii-test
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.0.0.0/24

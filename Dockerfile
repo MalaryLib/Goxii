@@ -1,9 +1,9 @@
-FROM ubuntu:16.04
-
+FROM golang:1.17.6-alpine as Build
 WORKDIR /usr/src/app
 
-RUN apt-get update
-RUN apt-get install -y vim
 
 # pre-copy/cache go.mod for pre-downloading dependencies and only redownloading them in subsequent builds if they change
-COPY . .
+COPY src/ ./src/
+COPY bin/ ./bin/
+
+RUN ls -la .
