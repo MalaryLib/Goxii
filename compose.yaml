@@ -1,7 +1,7 @@
 services:
   goxii:
     build: .
-    container_name: goxii-proxy
+    container_name: goxii
     ports:
       - 8081:8081
     command: sh ./bin/docker/build.sh
@@ -11,11 +11,9 @@ services:
     volumes:
       - ./resources/:/usr/src/app/resources
     networks:
-      - test-net
       - proxy-net
   
 networks:
   proxy-net:
     external: true
-  test-net:
-    external: true
+
