@@ -1,3 +1,5 @@
+github.com/MalaryLib/Gelastic v0.0.0-20230807170840-af811ae483cd h1:J9E1iGndn3AVPzuHogdJYyOHpRoA2hfK6srnlf/59sE=
+github.com/MalaryLib/Gelastic v0.0.0-20230807170840-af811ae483cd/go.mod h1:sIYYsEiOU24hrpUo0QW03Cf7I2kJcSEJoUS6gMqtog4=
 github.com/fatih/color v1.15.0 h1:kOqh6YHBtK8aywxGerMG2Eq3H6Qgoqeo13Bk2Mv/nBs=
 github.com/fatih/color v1.15.0/go.mod h1:0h5ZqXfHYED7Bhv2ZJamyIOUej9KtShiJESRwBDUSsw=
 github.com/mattn/go-colorable v0.1.13 h1:fFA4WZxdEF4tXPZVKMLwD8oUnCTTo08duU7wxecdEvA=

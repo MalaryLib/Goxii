@@ -23,63 +23,76 @@ type GoxiiTunnel struct {
     Done bool
 }
 
-func (g *GoxiiTunnel) SendEofReq(conn net.Conn) {
-    fmt.Fprint(conn, "HTTP/1.1 102 Processing\r\n\r\n")
-}
-
+// A global function that can be used to standardize how we read from 
+// connections.
 func (g* GoxiiTunnel) Read(buff *bytes.Buffer, conn net.Conn) (error) {
    
     buffer := make([]byte, 1024*100)
+	// last_buffer := make([]byte, 1024*100)
     last := 0
     last_rep_counter := 0
     for n, err := conn.Read(buffer); n != 0; {
         if err != nil {
-            panic(err)
-        } else if last_rep_counter == 3 {
+			// most likely a timeout, what do we want to do...
+			// we will ignore
+        } else if last_rep_counter >= 6 {
             break
         } else if n == last {
             last_rep_counter++
             continue
         }
         last = n
+		// last_buffer = buffer
     }
     buff.Write(buffer[:last])
     return nil
 }
 
+// The handler for the client (i.e., the connection originating from the user).
 func (g *GoxiiTunnel) ClientWorker() {
-    g.Client.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	// good practice to avoid hanging the connection
+    g.Client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	
     counter := 0
     for {
+		// this closes the connection when we've noticed that 
+		// the dest has not sent us any data.
         if counter > 3 {
+			g.Done = true
+
             g.Client.Close()
             close(g.Result)
             close(g.Payload)
-            g.Done = true
             fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("\nClosing connection..."), g.Client.RemoteAddr())
             return
         }
         var buff bytes.Buffer
    
+		// read from the client, write that to the channel for the 
+		// dest
         g.Read(&buff, g.Client) // will block for duration ^
         g.Payload <- buff.String()
 
+		// wait for the dest to write back to us
         payload := <-g.Result
         payload_bytes := len([]byte(payload))
        
+		// if we recieved nothing, don't bother writing
         if (payload_bytes == 0) {
             counter++
             continue
         }
 
+		// sending the payload back to the user
         g.Client.Write([]byte(payload))
-        // some house keeping
-
+        
+		// console logging
         fmt.Printf("Input : %s\n", color.New(color.FgCyan).SprintFunc()(buff.String()))
         fmt.Printf("Output: %s\n, (Bytes: %d)", color.New(color.FgCyan).SprintFunc()(payload), payload_bytes)
     }
 }
 
+// handler for the destination
 func (g *GoxiiTunnel) EndpointWorker() {
     // connect to the service
     conn, err := net.Dial("tcp", g.Destination.Address)
@@ -89,13 +102,19 @@ func (g *GoxiiTunnel) EndpointWorker() {
         return
     }
 
+	// required for dealing with the keep-alive
+	// wait time.
+	conn.SetDeadline(time.Now().Add(time.Millisecond * 700))
+
+	// received data from the destination
     for {
-       
         var buff bytes.Buffer
         str := <-g.Payload
 
         fmt.Fprint(conn, str)
         g.Read(&buff, conn)
+
+		// useful for preventing a potential race condition, but may still lock \_+=+_/
         if (g.Done) {
             conn.Close()
             fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("\nClosing connection..."), conn.RemoteAddr())
