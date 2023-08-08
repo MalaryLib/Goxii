@@ -1,167 +1,193 @@
 package models
 
 import (
-	"bytes"
-	"fmt"
-	"io"
-	"net"
-	"strings"
-	"time"
-	"github.com/fatih/color"
+    "bytes"
+    "fmt"
+    "net"
+    "strings"
+    "time"
+    "github.com/fatih/color"
 )
 
 type RegisteredEndpoint struct {
-	Address string
-	Allowed []string
+    Address string
+    Allowed []string
 }
 
 type GoxiiTunnel struct {
-	Client net.Conn
-	Destination RegisteredEndpoint
-	Payload (chan string)
-	Result (chan string)
-	Limiter (chan int)
+    Client net.Conn
+    Destination RegisteredEndpoint
+    Payload (chan string)
+    Result (chan string)
+    Limiter (chan int)
+    Done bool
 }
 
 func (g *GoxiiTunnel) SendEofReq(conn net.Conn) {
-	fmt.Fprint(conn, "HTTP/1.1 102 Processing\r\n\r\n")
+    fmt.Fprint(conn, "HTTP/1.1 102 Processing\r\n\r\n")
 }
 
 func (g* GoxiiTunnel) Read(buff *bytes.Buffer, conn net.Conn) (error) {
-	_, err := io.Copy(buff, conn)
-	if err != io.EOF && err != nil {
-		// this is the timeout, request is assumed to be done.
-		// this is not my best decision, but \_(0-0)_/
-		g.SendEofReq(conn)
-		return err
-	}
-	return err
+   
+    buffer := make([]byte, 1024*100)
+    last := 0
+    last_rep_counter := 0
+    for n, err := conn.Read(buffer); n != 0; {
+        if err != nil {
+            panic(err)
+        } else if last_rep_counter == 3 {
+            break
+        } else if n == last {
+            last_rep_counter++
+            continue
+        }
+        last = n
+    }
+    buff.Write(buffer[:last])
+    return nil
 }
 
-func (g *GoxiiTunnel) ClientWorker(conn net.Conn) {
-	g.Client.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	var buff bytes.Buffer
-	
-	g.Read(&buff, conn)	// will block for duration ^
-	fmt.Printf("%s\n", color.New(color.FgCyan).SprintFunc()(buff.String()))
+func (g *GoxiiTunnel) ClientWorker() {
+    g.Client.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+    counter := 0
+    for {
+        if counter > 3 {
+            g.Client.Close()
+            close(g.Result)
+            close(g.Payload)
+            g.Done = true
+            fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("\nClosing connection..."), g.Client.RemoteAddr())
+            return
+        }
+        var buff bytes.Buffer
+   
+        g.Read(&buff, g.Client) // will block for duration ^
+        g.Payload <- buff.String()
 
-	g.Payload <- buff.String()
+        payload := <-g.Result
+        payload_bytes := len([]byte(payload))
+       
+        if (payload_bytes == 0) {
+            counter++
+            continue
+        }
 
-	g.Client.Write([]byte(<-g.Result))
-	fmt.Printf("Was written To: %s\n", color.New(color.FgCyan).SprintFunc()())
+        g.Client.Write([]byte(payload))
+        // some house keeping
 
-	// some house keeping
-	g.Client.Close()
-	close(g.Result)
-	close(g.Payload)
+        fmt.Printf("Input : %s\n", color.New(color.FgCyan).SprintFunc()(buff.String()))
+        fmt.Printf("Output: %s\n, (Bytes: %d)", color.New(color.FgCyan).SprintFunc()(payload), payload_bytes)
+    }
 }
 
 func (g *GoxiiTunnel) EndpointWorker() {
-	// connect to the service
-	conn, err := net.Dial("tcp", g.Destination.Address)
-	if err != nil {
-		fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("Failed to bind to: "), g.Destination.Address)
-		g.Client.Close()
-		return
-	}
-	var buff bytes.Buffer
-	str := <-g.Payload
-	fmt.Printf("To Endpoint: %s\n", color.New(color.FgCyan).SprintFunc()(str))
+    // connect to the service
+    conn, err := net.Dial("tcp", g.Destination.Address)
+    if err != nil {
+        fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("Failed to bind to: "), g.Destination.Address)
+        g.Client.Close()
+        return
+    }
 
-	fmt.Fprint(conn, str)
-	g.Read(&buff, conn)
-	fmt.Printf("Endpoint Sent: %s\n", color.New(color.FgCyan).SprintFunc()(buff.String()))
+    for {
+       
+        var buff bytes.Buffer
+        str := <-g.Payload
 
-	
-	g.Result <- buff.String()
-	conn.Close()
+        fmt.Fprint(conn, str)
+        g.Read(&buff, conn)
+        if (g.Done) {
+            conn.Close()
+            fmt.Printf("%s %s!\n", color.New(color.FgRed).SprintFunc()("\nClosing connection..."), conn.RemoteAddr())
+            return
+        }
+        g.Result <- buff.String()
+    }
 }
 
 type GoxiiServer struct {
-	Tunnels []GoxiiTunnel
-	Endpoint RegisteredEndpoint
-	Ls 	net.Listener
+    Tunnels []GoxiiTunnel
+    Endpoint RegisteredEndpoint
+    Ls  net.Listener
 }
 
 func (g *GoxiiServer) RegisterEndpoint(Address string, Allowed []string) {
-	Endpoint := RegisteredEndpoint {
-		Address: Address,
-		Allowed: Allowed,
-	}
-	
-	g.Endpoint = Endpoint
+    Endpoint := RegisteredEndpoint {
+        Address: Address,
+        Allowed: Allowed,
+    }
+   
+    g.Endpoint = Endpoint
 }
 
 func (g *GoxiiServer) Init(port int) {
-	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-	if err != nil {
-		panic(err)
-	}
+    addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+    if err != nil {
+        panic(err)
+    }
 
-	ls, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		panic(err)
-	}
+    ls, err := net.ListenTCP("tcp", addr)
+    if err != nil {
+        panic(err)
+    }
 
-	// reassigning to our struct
-	g.Ls = ls
+    // reassigning to our struct
+    g.Ls = ls
 }
 
 func (g *GoxiiServer) Verify(conn net.Conn) (found bool) {
-	found = false
-	remote := strings.Split(conn.RemoteAddr().String(), ":")[0]
-	for _, elem := range g.Endpoint.Allowed {
-		if elem == remote {
-			found = true
-		}
-	}
+    found = false
+    remote := strings.Split(conn.RemoteAddr().String(), ":")[0]
+    for _, elem := range g.Endpoint.Allowed {
+        if elem == remote {
+            found = true
+        }
+    }
 
-	if !found {
-		conn.Close()
-	}
+    if !found {
+        conn.Close()
+    }
 
-	return found
+    return found
 }
 
 func (g *GoxiiServer) StartTunnel(conn net.Conn) {
-	// this function will deal with the tunneling part of the 
-	// server.
-	payload := make(chan string)
-	result := make(chan string)
-	limiter := make(chan int, 2)
+    // this function will deal with the tunneling part of the
+    // server.
+    payload := make(chan string)
+    result := make(chan string)
+    limiter := make(chan int)
 
-	Tunnel := GoxiiTunnel {
-		Client: conn,
-		Destination: g.Endpoint,
-		Payload: payload,
-		Result: result,
-		Limiter: limiter,
-	}
-
-	g.Tunnels = append(g.Tunnels, Tunnel)
-	
-	// we nowconn.RemoteAddr().String() start a goroutine that reads
-	// from the client and will write to the payload
-	// channel.
-	go Tunnel.ClientWorker(conn)
-	go Tunnel.EndpointWorker()
+    Tunnel := GoxiiTunnel {
+        Client: conn,
+        Destination: g.Endpoint,
+        Payload: payload,
+        Result: result,
+        Limiter: limiter,
+    }
+   
+    // we nowconn.RemoteAddr().String() start a goroutine that reads
+    // from the client and will write to the payload
+    // channel.
+    go Tunnel.ClientWorker()
+    go Tunnel.EndpointWorker()
 }
 
 func (g *GoxiiServer) Start() {
-	fmt.Printf("Starting to listen on %s\n", color.New(color.FgHiYellow).SprintFunc()(g.Ls.Addr().String()))
+    fmt.Printf("Starting to listen on %s\n", color.New(color.FgHiYellow).SprintFunc()(g.Ls.Addr().String()))
 
-	for {
-		conn, err := g.Ls.Accept()
-		if err != nil {
-			panic(err)
-		}
+    for {
+        conn, err := g.Ls.Accept()
+        if err != nil {
+            panic(err)
+        }
 
-		if g.Verify(conn) {
-			fmt.Printf("(Allowed) %s\n", color.New(color.FgHiGreen).SprintFunc()(conn.RemoteAddr().String()))
-			go g.StartTunnel(conn) 
-		} else {
-			fmt.Printf("(Rejected) %s\n", color.New(color.FgHiRed).SprintFunc()(conn.RemoteAddr().String()))
-		}
-		
-	}
+        if g.Verify(conn) {
+            fmt.Printf("(Allowed) %s\n", color.New(color.FgHiGreen).SprintFunc()(conn.RemoteAddr().String()))
+            go g.StartTunnel(conn)
+        } else {
+            fmt.Printf("(Rejected) %s\n", color.New(color.FgHiRed).SprintFunc()(conn.RemoteAddr().String()))
+        }
+       
+    }
 }
