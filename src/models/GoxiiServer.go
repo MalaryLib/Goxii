@@ -158,23 +158,26 @@ func (g *GoxiiServer) Verify(conn net.Conn) (found bool) {
     found = false
     remote := strings.Split(strings.Split(conn.RemoteAddr().String(), ":")[0], ".")
     for _, elem := range g.Endpoint.Allowed {
+        fmt.Printf("Allowing: %s! (%s)\n", elem, remote)
         if strings.Contains(elem, ":") {
             elem = strings.Split(elem, ":")[0]
         }
 
         exitFlag := false
         for index, segment := range strings.Split(elem, ".") {
-            if exitFlag {
-                break
-            } else if (segment == "*") {
+            if (segment == "*") {
                 continue
             } else if remote[index] != segment {
+                fmt.Printf("%s == %s", segment, remote[index])
                 exitFlag = true
                 break
             }
         }
-
         found = !exitFlag
+
+        if found {
+            break
+        }
     }
 
     if !found {
