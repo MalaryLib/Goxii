@@ -9,6 +9,10 @@ import (
     "github.com/fatih/color"
 )
 
+const (
+    ConnDeadline = 800
+)
+
 type RegisteredEndpoint struct {
     Address string
     Allowed []string
@@ -51,7 +55,7 @@ func (g* GoxiiTunnel) Read(buff *bytes.Buffer, conn net.Conn) (error) {
 // The handler for the client (i.e., the connection originating from the user).
 func (g *GoxiiTunnel) ClientWorker() {
 	// good practice to avoid hanging the connection
-    g.Client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+    g.Client.SetReadDeadline(time.Now().Add(ConnDeadline * time.Millisecond))
 	
     counter := 0
     for {
@@ -104,7 +108,7 @@ func (g *GoxiiTunnel) EndpointWorker() {
 
 	// required for dealing with the keep-alive
 	// wait time.
-	conn.SetDeadline(time.Now().Add(time.Millisecond * 700))
+	conn.SetDeadline(time.Now().Add(time.Millisecond * ConnDeadline))
 
 	// received data from the destination
     for {
