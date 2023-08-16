@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 )
