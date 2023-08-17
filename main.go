@@ -1,17 +1,27 @@
 package main
 
 import (
-	"flag"
+	// "flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strings"
 	"sync"
 	"time"
+	"flag"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
+
 )
+
+func check(err error) {
+	if err != nil {
+		log.Panicln(err)
+	}
+}
 
 type ProxyObserver struct {
 
@@ -97,7 +107,7 @@ func StartProxy(
 	port int,
 	destination string,
 	MacAllowedMap map[string]bool,
-	IpMacMap map[string]string,
+	ConnectionPool *sync.Pool,
 ) {
 	ls, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {
@@ -107,7 +117,7 @@ func StartProxy(
 	defer ls.Close()
 	fmt.Printf("Starting to listen on port %d\n", port)
 
-	dat, _ := os.ReadFile("./Whoops.html")
+	dat, _ := os.ReadFile("./templates/Whoops.html")
 	
 	for {
 		conn, err := ls.Accept()
@@ -117,8 +127,26 @@ func StartProxy(
 		exit := false
 		IpSrc := strings.Split(conn.RemoteAddr().String(), ":")[0]
 		fmt.Printf("Proxy Request Origin: %s\n", IpSrc)
-		mac, ok := IpMacMap[IpSrc]
 
+		db, ok := ConnectionPool.Get().(*DatabaseConn)
+		if !ok {
+			println("No open connections in the pool!")
+			conn.Close()
+			ConnectionPool.Put(db)
+			continue
+		}
+
+		var mac string
+		rows, err := db.conn.Query("SELECT * FROM ipmapping WHERE ip = $1", IpSrc)
+		for rows.Next() {
+			var id int
+			var ip, m string
+			rows.Scan(&id, &ip, &m)
+			mac = m
+			break
+		}
+		ConnectionPool.Put(db)
+		
 		// perform the mac address verification
 		if ok {
 			macAllowed, exists := MacAllowedMap[mac]
@@ -131,6 +159,7 @@ func StartProxy(
 
 		// exit if required by mac address verification
 		if exit {
+			println("Exiting!")
 			response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s", len(dat), string(dat))
 			conn.Write([]byte(response))
 			conn.Close()
@@ -170,6 +199,24 @@ func StartProxy(
 // full command used for running goxii
 // Goxii --port 8080 --destination 127.0.0.1:8081 --mac
 func main() {
+	// Creates the conneciton pool for the database(s)
+	ConnectionPool := &sync.Pool{}
+	for i := 0; i < 5; i++ {
+		db := &DatabaseConn{
+			User: "dev",
+			Password: "dev",
+			Host: "localhost",
+			Database: "ipmacdb",
+			TableName: "ipmapping",
+		}
+		db.InitConnection(db.User, db.Password, db.Host, db.Database, db.TableName)
+		ConnectionPool.Put(db)
+	}
+
+	pb := InitPacketBarrier("lo")
+	pb.ConnectionPool = ConnectionPool
+	
+	go pb.StartPacketBarrier()
 
 	// parse the command line arguments into their variables
 	// listed below.
@@ -181,18 +228,27 @@ func main() {
 	flag.Parse()
 
 	// instantiating our maps
-	IpMacMap := make(map[string]string, 0)
 	MacAllowedMap := make(map[string]bool, 0)
 
 	// starting our services
-	go StartPacketListener("enp88s0", *HostPortFlag, IpMacMap)
-	go StartPacketListener("lo", *HostPortFlag, IpMacMap)
 
 	MacIngestionPoint := MacIngestionPoint{
 		MacAllowedMap: MacAllowedMap,
 	}
 	go MacIngestionPoint.StartServer()
 
-	StartProxy(*HostPortFlag, *DestinationFlag, MacAllowedMap, IpMacMap)
+	StartProxy(*HostPortFlag, *DestinationFlag, MacAllowedMap, &sync.Pool{
+		New: func() any {
+			db := &DatabaseConn{
+				User: "dev",
+				Password: "dev",
+				Host: "localhost",
+				Database: "ipmacdb",
+				TableName: "ipmapping",
+			}
+			db.InitConnection(db.User, db.Password, db.Host, db.Database, db.TableName)
+			return db
+		},
+	})
 	
 }
