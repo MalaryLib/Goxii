@@ -79,10 +79,10 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 	// we need to verify that the connection is valid based on the 
 	// mac address.
 	db, ok := p.ConnectionPool.Get().(*DatabaseConn)
+	defer p.ConnectionPool.Put(db)
 	if !ok || db == nil {
 		// there were not enough connections in the pool,
 		// so we are going to wait it out.
-		println("No connections!")
 		return
 	}
 
@@ -109,6 +109,7 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 
 func (p *Proxy) StartProxy(BindPort int, DestinationAddress string, ctx context.Context) {
 	ls, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", BindPort))
+	defer ls.Close()
 	check(err)
 
 	wg := sync.WaitGroup{}
@@ -119,7 +120,6 @@ func (p *Proxy) StartProxy(BindPort int, DestinationAddress string, ctx context.
 			break proxy_loop
 		default:
 			conn, _ := ls.Accept()
-			println("Connection accepted...")
 			wg.Add(1)
 			go p.handleConnection(conn, &DestinationAddress, &wg)
 		}

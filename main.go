@@ -30,16 +30,24 @@ func main() {
 	signal.Notify(exit, syscall.SIGINT)
 
 	// Creates the conneciton pool for the database(s)
-	ConnectionPool := &sync.Pool{}
-	for i := 0; i < 5; i++ {
-		db := &DatabaseConn{
-			User: "dev",
-			Password: "dev",
-			Host: "localhost",
-			Database: "ipmacdb",
-			TableName: "ipmapping",
+	ConnectionPool := &sync.Pool{
+		New: func() interface{} {
+			db := &DatabaseConn{
+				User: "dev",
+				Password: "dev",
+				Host: "localhost",
+				Database: "ipmacdb",
+				TableName: "ipmapping",
+			}
+			db.InitConnection(db.User, db.Password, db.Host, db.Database, db.TableName)
+			return db
+		},
+	}
+	for i := 0; i < 9; i++ {
+		db, ok := ConnectionPool.New().(*DatabaseConn)
+		if !ok {
+			panic("This connection pool is acting wierd!")
 		}
-		db.InitConnection(db.User, db.Password, db.Host, db.Database, db.TableName)
 		ConnectionPool.Put(db)
 	}
 

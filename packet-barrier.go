@@ -76,6 +76,8 @@ func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, wg *sync.Wai
 		select {
 		case mapping := <-c:
 			db, ok := p.ConnectionPool.Get().(*DatabaseConn)
+			defer p.ConnectionPool.Put(db)
+
 			if !ok {
 				break
 			}
@@ -83,7 +85,6 @@ func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, wg *sync.Wai
 			if db != nil {
 				db.InsertMapping(mapping.IP, mapping.Mac)
 			}
-			p.ConnectionPool.Put(db)
 		case <- ctx.Done():
 			break outerloop
 		}
@@ -104,8 +105,10 @@ func (p *PacketBarrier) StartPacketBarrier(ctx context.Context) {
 
 	source := p.Handler.GetSource(handle)
 	MappingChannel := make(chan *IpMacMapping, 10)
+	PacketChannel := make(chan gopacket.Packet, 5)
 
 	defer close(MappingChannel)
+	defer close(PacketChannel)
 	defer handle.Close()
 
 	go p.InitMappingService(MappingChannel, &wg, ctx)
@@ -113,7 +116,9 @@ func (p *PacketBarrier) StartPacketBarrier(ctx context.Context) {
 	for {
 		select {
 		case packet := <- source.Packets():
-			go p.handlePacket(packet, MappingChannel, &wg, ctx)
+			PacketChannel <- packet
+		case pack := <- PacketChannel:
+			go p.handlePacket(pack, MappingChannel, &wg, ctx)
 		case <- ctx.Done():
 			break MainDriver
 		}
