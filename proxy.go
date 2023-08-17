@@ -87,8 +87,9 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 	}
 
 	mac := db.GetMacFromIP(ip)
+	fmt.Printf("Received the MAC: %s\n", mac)
 	valid, ok := p.MacAllowedMap[mac]
-	if !ok || !valid {
+	if !ok || (ok && !valid) {
 		p.ServeHTTPViaConn(InvalidConnectionHttpFile, conn)
 		return
 	}
@@ -97,10 +98,11 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 	// destination server...
 	dest, err := net.Dial("tcp", *DestinationAddress)
 	if err != nil {
-		return
+		panic(err)
 	}
 	
 	ConnWg := &sync.WaitGroup{}
+	ConnWg.Add(2)
 	go p.ProxyData(conn, dest, ConnWg)
 	go p.ProxyData(dest, conn, ConnWg)
 
@@ -109,8 +111,9 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 
 func (p *Proxy) StartProxy(BindPort int, DestinationAddress string, ctx context.Context) {
 	ls, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", BindPort))
-	defer ls.Close()
 	check(err)
+	defer ls.Close()
+
 
 	wg := sync.WaitGroup{}
 	proxy_loop:

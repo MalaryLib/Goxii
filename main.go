@@ -51,8 +51,6 @@ func main() {
 		ConnectionPool.Put(db)
 	}
 
-	Proxy := Proxy{}
-
 	pb := InitPacketBarrier("lo")
 	pb.ConnectionPool = ConnectionPool
 	
@@ -62,25 +60,23 @@ func main() {
 	// listed below.
 	DestinationFlag := flag.String("destination", "", "Destination IP to connect this proxy to; in the ip:port syntax.")
 	HostPortFlag := flag.Int("port", 8901, "Port to bind the proxy on, from the host.")
-	// MacFileFlag := flag.String("mac", "./.AllowedMacs", "The path to a file containing a list of hard-coded allowed MAC Addresses.")
-	// PacketInterfaceFlag := flag.String("interface", "lo", "The interface we should listen on for packets.")
-
+	MacServerFlag := flag.Int("mac-server", 8083, "The port to bind the mac ingestion server to.")
 	flag.Parse()
 
 	// instantiating our maps
 	MacAllowedMap := make(map[string]bool, 0)
 
 	// starting our services
+	Proxy := Proxy{}
 
-	MacIngestionPoint := MacIngestionPoint{
+	ms := MacServer{
 		MacAllowedMap: MacAllowedMap,
 	}
-	go MacIngestionPoint.StartServer()
+	go ms.StartServer(*MacServerFlag)
 	
 	Proxy.ConnectionPool = ConnectionPool
-	Proxy.MacAllowedMap = make(map[string]bool)
+	Proxy.MacAllowedMap = MacAllowedMap
 	go Proxy.StartProxy(*HostPortFlag, *DestinationFlag, ctx)
-	
 	<- exit
 	cancel()
 }
