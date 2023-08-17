@@ -1,10 +1,9 @@
 package main
 
 import (
-	"os"
-	"os/signal"
+	"context"
 	"sync"
-	"syscall"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
@@ -40,22 +39,38 @@ func InitPacketBarrier(iface string) *PacketBarrier {
 // this function will take the packet and parse it for the proper fields
 // such as mac address and src IPs. This will then discard the packet and
 // pass it to a ipToMacWorker 
-func (p *PacketBarrier) handlePacket(packet gopacket.Packet, c chan <- *IpMacMapping, wg *sync.WaitGroup) {
+func (p *PacketBarrier) handlePacket(packet gopacket.Packet, c chan <- *IpMacMapping, wg *sync.WaitGroup, ctx context.Context) {
+	wg.Add(1)
 	ethPacket := ToEthernet(packet)
 	mac := ethPacket.SrcMAC.String()
 	
 	ipv4Packet := ToIPv4(packet)
 	ip := ipv4Packet.SrcIP.String()
 
-	c <- &IpMacMapping{
-		IP: ip,
-		Mac: mac,
+	loop:
+	for {
+		select {
+		case <- ctx.Done():
+			break
+		default:
+			defer func() {
+				if r := recover(); r != nil {
+
+				}
+			}()
+			case c <- &IpMacMapping{ IP: ip, Mac: mac}:
+				break loop
+			case <- time.After(100 * time.Millisecond):
+				// timeout occured on the channel send
+				break
+		}
 	}
 
 	wg.Done()
 }
 
-func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, exit chan os.Signal) {
+func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, wg *sync.WaitGroup, ctx context.Context) {
+	wg.Add(1)
 	outerloop:
 	for {
 		select {
@@ -69,39 +84,41 @@ func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, exit chan os
 				db.InsertMapping(mapping.IP, mapping.Mac)
 			}
 			p.ConnectionPool.Put(db)
-		case <- exit:
+		case <- ctx.Done():
 			break outerloop
 		}
 	}
 
+	wg.Done()
 	p.ClosePacketBarrier = true
 }
 
-func (p *PacketBarrier) StartPacketBarrier() {
+func (p *PacketBarrier) StartPacketBarrier(ctx context.Context) {
 	println("Activating the packet barrier!")
+
+	// set up the context to handle proper exits
 	wg := sync.WaitGroup{}
-	MappingServiceBreaker := make(chan os.Signal, 1)
-	defer close(MappingServiceBreaker)
 
-	signal.Notify(MappingServiceBreaker, syscall.SIGINT)
 	handle, err := p.Handler.GetHandle()
-
 	check(err)
-	defer handle.Close()
 
 	source := p.Handler.GetSource(handle)
 	MappingChannel := make(chan *IpMacMapping, 10)
-	defer close(MappingChannel)
 
-	go p.InitMappingService(MappingChannel, MappingServiceBreaker)
-	for packet := range source.Packets() {
-		if p.ClosePacketBarrier {
-			println("Waiting for all go-routines to exit!")
-			wg.Wait()
-			break
+	defer close(MappingChannel)
+	defer handle.Close()
+
+	go p.InitMappingService(MappingChannel, &wg, ctx)
+	MainDriver:
+	for {
+		select {
+		case packet := <- source.Packets():
+			go p.handlePacket(packet, MappingChannel, &wg, ctx)
+		case <- ctx.Done():
+			break MainDriver
 		}
-		wg.Add(1)
-		go p.handlePacket(packet, MappingChannel, &wg)
 	}
+	println("Closing the Packet Barrier...")
+	wg.Wait() // waits for all the handlePacket goroutines to exit.
 }
 

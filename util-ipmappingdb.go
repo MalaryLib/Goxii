@@ -14,6 +14,21 @@ type DatabaseConn struct {
 	conn *sql.DB
 }
 
+func (db *DatabaseConn) GetMacFromIP(ip string) (string) {
+	query := fmt.Sprintf("SELECT * FROM %s WHERE ip=$1", db.TableName)
+	rows, err := db.conn.Query(query, ip)
+	check(err)
+	// since there should only be one, we will be taking the first
+	var id int
+	var addr, mac string
+	for rows.Next() {
+		rows.Scan(&id, &addr, &mac)
+		break
+	}
+
+	return mac
+}
+
 func (db *DatabaseConn) InitConnection(User, Pass, Host, Database, table string) {
 	conn, err := GetDatabaseConn(GenerateConnStr(db.User, db.Password, db.Host, db.Database))
 	if err != nil {
