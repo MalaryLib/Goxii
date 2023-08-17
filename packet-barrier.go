@@ -95,7 +95,7 @@ func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, wg *sync.Wai
 }
 
 func (p *PacketBarrier) StartPacketBarrier(ctx context.Context) {
-	println("Activating the packet barrier!")
+	SubtleText("Activating the packet barrier!\n")
 
 	// set up the context to handle proper exits
 	wg := sync.WaitGroup{}
@@ -123,7 +123,7 @@ func (p *PacketBarrier) StartPacketBarrier(ctx context.Context) {
 			break MainDriver
 		}
 	}
-	println("Closing the Packet Barrier...")
+	WarningText("Closing the Packet Barrier...\n")
 	wg.Wait() // waits for all the handlePacket goroutines to exit.
 }
 

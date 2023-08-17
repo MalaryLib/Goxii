@@ -113,7 +113,7 @@ func (p *Proxy) StartProxy(BindPort int, DestinationAddress string, ctx context.
 	ls, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", BindPort))
 	check(err)
 	defer ls.Close()
-
+	SubtleText("Activating the Proxy!\n")
 
 	wg := sync.WaitGroup{}
 	proxy_loop:

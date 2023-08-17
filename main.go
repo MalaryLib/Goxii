@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "flag"
 	"context"
 	"flag"
 	"log"
@@ -77,6 +76,10 @@ func main() {
 	Proxy.ConnectionPool = ConnectionPool
 	Proxy.MacAllowedMap = MacAllowedMap
 	go Proxy.StartProxy(*HostPortFlag, *DestinationFlag, ctx)
+	
+	H1Print("All services are online...\n")
 	<- exit
+	WarningText("\n\nReceived SIGINT, waiting for other services to return...\n")
+
 	cancel()
 }
