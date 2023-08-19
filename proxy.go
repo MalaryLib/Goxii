@@ -17,7 +17,9 @@ const (
 
 type Proxy struct {
 	MacAllowedMap map[string]bool
-	ConnectionPool *sync.Pool
+	Connection *DatabaseConn
+	IsDescendant bool
+	ProxyChain []string
 }
 
 type ProxyObserver struct {
@@ -71,26 +73,25 @@ func (p *Proxy) ServeHTTPViaConn(HttpFilePath string, conn net.Conn) {
 	conn.Write([]byte(response))
 }
 
-func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer conn.Close()
-	ip := strings.Split(conn.RemoteAddr().String(), ":")[0]
-
+func (p *Proxy) verifyIp(ip string, conn net.Conn) (bool) {
 	// we need to verify that the connection is valid based on the 
 	// mac address.
-	db, ok := p.ConnectionPool.Get().(*DatabaseConn)
-	defer p.ConnectionPool.Put(db)
-	if !ok || db == nil {
-		// there were not enough connections in the pool,
-		// so we are going to wait it out.
-		return
-	}
-
-	mac := db.GetMacFromIP(ip)
-	fmt.Printf("Received the MAC: %s\n", mac)
+	mac := p.Connection.GetMacFromIP(ip)
+	SubtleText(fmt.Sprintf("Received the MAC: %s\n", mac))
 	valid, ok := p.MacAllowedMap[mac]
 	if !ok || (ok && !valid) {
 		p.ServeHTTPViaConn(InvalidConnectionHttpFile, conn)
+		return false
+	}
+
+	return true
+}
+
+func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer conn.Close()
+	
+	if 	ip := strings.Split(conn.RemoteAddr().String(), ":")[0]; !p.IsDescendant && !p.verifyIp(ip, conn) {
 		return
 	}
 
@@ -110,6 +111,11 @@ func (p *Proxy) handleConnection(conn net.Conn, DestinationAddress *string, wg *
 }
 
 func (p *Proxy) StartProxy(BindPort int, DestinationAddress string, ctx context.Context) {
+	if len(p.ProxyChain) > 0 {
+		// we redirect our content to the descendent
+		DestinationAddress = p.ProxyChain[0]
+	}
+
 	ls, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", BindPort))
 	check(err)
 	defer ls.Close()

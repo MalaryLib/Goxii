@@ -1,0 +1,13 @@
+services:
+  proxy:
+    build: .
+    container_name: test-proxy-1
+    networks:
+      - proxy-net
+    ports:
+      - 8080:8080
+    command: ./Goxii --port 8080 --destination 127.0.0.1:8081 --mac-server 8082
+    
+networks:
+  proxy-net:
+    external: true

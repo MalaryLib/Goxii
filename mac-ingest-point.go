@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +13,29 @@ import (
 
 type MacServer struct {
 	MacAllowedMap map[string]bool
+	ProxyDescendents []string
+	Dp DestinationPayload
+}
+
+type DestinationPayload struct {
+	DestinationAddress string
+}
+
+func (ms *MacServer) ReachOutToProxy() {
+	dat, _ := json.Marshal(ms.Dp)
+	url := fmt.Sprintf("http://%s/setup", ms.ProxyDescendents[0])
+	http.Post(url, "application/json", bytes.NewReader(dat))
+}
+
+func (ms *MacServer) HandleProxyChild(w http.ResponseWriter, r *http.Request) {
+	if len(ms.ProxyDescendents) == 0 {
+		defer r.Body.Close()
+	}
+	dat, err := json.Marshal(ms.Dp)
+	url := fmt.Sprintf("http://%s/setup", ms.ProxyDescendents[0])
+	resp, err := http.Post(url, "application/json", bytes.NewReader(dat))
+	check(err)
+	defer resp.Body.Close()
 }
 
 func (ms *MacServer) HandleRoot(w http.ResponseWriter, r *http.Request) {
@@ -40,13 +65,17 @@ func (ms*MacServer) ingestMacWithPass(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func (ms *MacServer) StartServer(BindPort int) {
+func (ms *MacServer) StartServer(BindAddres string, BindPort int) {
+	if len(ms.ProxyDescendents) > 0 {
+		ms.ReachOutToProxy()
+	}
 	SubtleText("Activating the Mac Ingestion Server!\n")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ms.HandleRoot)
 	mux.HandleFunc("/ingest-mac", ms.ingestMacWithPass)
+	mux.HandleFunc("/activate-chain", ms.HandleProxyChild)
 
-	err := http.ListenAndServe(fmt.Sprintf(":%d", BindPort), mux)
+	err := http.ListenAndServe(fmt.Sprintf("%s:%d", BindAddres, BindPort), mux)
 	if err != nil {
 		panic(err)
 	}

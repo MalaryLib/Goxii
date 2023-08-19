@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -12,12 +14,22 @@ type DatabaseConn struct {
 	Host, Database string
 	TableName string
 	conn *sql.DB
+	Count int
 }
 
 func (db *DatabaseConn) GetMacFromIP(ip string) (string) {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ip=$1", db.TableName)
 	rows, err := db.conn.Query(query, ip)
-	check(err)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	if err != nil {
+		return ""
+	}
+	db.Count++
+	db.conn.SetConnMaxIdleTime(1 * time.Second)
 	// since there should only be one, we will be taking the first
 	var id int
 	var addr, mac string
@@ -26,7 +38,7 @@ func (db *DatabaseConn) GetMacFromIP(ip string) (string) {
 		break
 	}
 
-	return mac
+	return strings.ToUpper(mac)
 }
 
 func (db *DatabaseConn) InitConnection(User, Pass, Host, Database, table string) {
@@ -41,6 +53,12 @@ func (db *DatabaseConn) InitConnection(User, Pass, Host, Database, table string)
 	db.Database = Database
 	db.TableName = table
 	db.conn = conn
+
+	db.conn.SetMaxOpenConns(30)
+	db.conn.SetMaxIdleConns(30)
+
+	db.conn.SetConnMaxIdleTime(2 * time.Second)
+	db.conn.SetConnMaxLifetime(2 * time.Second)
 }
 
 func (db *DatabaseConn) InsertMapping(ip, mac string) {

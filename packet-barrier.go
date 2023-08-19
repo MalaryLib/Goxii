@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 // an outside connection and is where we can do our Mac, IP, filtering.
 type PacketBarrier struct {
 	Handler PacketHandler
-	ConnectionPool *sync.Pool
+	Connection *DatabaseConn
 	ClosePacketBarrier bool
 }
 
@@ -42,7 +43,7 @@ func InitPacketBarrier(iface string) *PacketBarrier {
 func (p *PacketBarrier) handlePacket(packet gopacket.Packet, c chan <- *IpMacMapping, wg *sync.WaitGroup, ctx context.Context) {
 	wg.Add(1)
 	ethPacket := ToEthernet(packet)
-	mac := ethPacket.SrcMAC.String()
+	mac := strings.ToUpper(ethPacket.SrcMAC.String())
 	
 	ipv4Packet := ToIPv4(packet)
 	ip := ipv4Packet.SrcIP.String()
@@ -75,16 +76,7 @@ func (p *PacketBarrier) InitMappingService(c <- chan *IpMacMapping, wg *sync.Wai
 	for {
 		select {
 		case mapping := <-c:
-			db, ok := p.ConnectionPool.Get().(*DatabaseConn)
-			defer p.ConnectionPool.Put(db)
-
-			if !ok {
-				break
-			}
-
-			if db != nil {
-				db.InsertMapping(mapping.IP, mapping.Mac)
-			}
+			p.Connection.InsertMapping(mapping.IP, mapping.Mac)
 		case <- ctx.Done():
 			break outerloop
 		}
